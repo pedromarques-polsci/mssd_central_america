@@ -2,6 +2,7 @@
 library(countrycode)
 library(janitor)
 library(ggplot2)
+library(maps)
 library(tidyverse)
 library(vdemdata)
 
@@ -13,9 +14,9 @@ vdem <- vdemdata::vdem %>%
   mutate(iso3c = countrycode(co_wcode, origin = 'cown', 
                              destination = 'iso3c'))
 
-ws_dataset <- readRDS("data/ws_dataset.RDS") %>% 
+ws_dataset_latam <- readRDS("data/ws_dataset.RDS") %>% 
   filter(!iso3c  %in% c("ATG", "BHS", "BRB", "DMA", "GRD", "JAM", "KNA",
-                        "LCA", "VCT", "TTO", "BLZ"),
+                        "LCA", "VCT", "TTO", "BLZ", "SUR"),
          year %in% c(1990:2019)) %>% 
   mutate(region2 = ifelse(region %in% c('North America'),
                    'Mexico', region)) %>% 
@@ -27,15 +28,19 @@ ws_dataset <- readRDS("data/ws_dataset.RDS") %>%
     region2 == "South America" ~ "América do Sul"
   ))
 
+write_rds(ws_dataset_latam, "data/ws_dataset_latam.rds")
+
 # 1. LATAM Level ----------------------------------------------------------
-ws_region_mean_y <- ws_dataset %>% group_by(region2, year) %>%
+ws_dataset_latam <- read_rds("data/ws_dataset_latam.rds")
+
+ws_region_mean_y <- ws_dataset_latam %>% group_by(region2, year) %>%
   summarise(pcp_mean = mean(cg_pcp_sexp, na.rm = T),
             prop_mean = mean(cg_prop_sexp, na.rm = T),
             gdp_prop_mean = mean(cg_gdp_sexp, na.rm = T)) %>% 
   pivot_longer(cols = pcp_mean:gdp_prop_mean, 
                names_to = "type", values_to = "value")
 
-latam_mean <- ws_dataset %>% 
+latam_mean <- ws_dataset_latam %>% 
   group_by(year) %>% 
   summarise(pcp_mean = mean(cg_pcp_sexp, na.rm = T),
             prop_mean = mean(cg_prop_sexp, na.rm = T),
@@ -75,14 +80,19 @@ ggsave('plot/gg_latam_mean.jpeg',
        height = 10, width = 14, units = 'in')
 
 ## 1.1 Averages -----------------------------------------------------------
-ws_region_mean <- ws_dataset %>% group_by(region2) %>%
+ws_dataset_latam %>% 
+  summarise(pcp_mean = mean(cg_pcp_sexp, na.rm = T),
+            prop_mean = mean(cg_prop_sexp, na.rm = T),
+            gdp_prop_mean = mean(cg_gdp_sexp, na.rm = T))
+
+ws_region_mean <- ws_dataset_latam %>% group_by(region2) %>%
   summarise(pcp_mean = mean(cg_pcp_sexp, na.rm = T),
             prop_mean = mean(cg_prop_sexp, na.rm = T),
             gdp_prop_mean = mean(cg_gdp_sexp, na.rm = T))
 
 ws_region_mean
 
-ws_country_mean <- ws_dataset %>% 
+ws_country_mean <- ws_dataset_latam %>% 
   filter(region2 == "América Central") %>% group_by(iso3c) %>%
   summarise(pcp_mean = mean(cg_pcp_sexp, na.rm = T),
             prop_mean = mean(cg_prop_sexp, na.rm = T),
@@ -134,7 +144,7 @@ cores_dalton_friendly <- c(
   "#00FF7F"    # Verde-água vibrante (substitui #009E73)
 )
 
-levels(factor(ws_dataset$iso3c))
+levels(factor(ws_dataset_latam$iso3c))
 
 alpha_trends <- function(data, var, varlabel){
   var <- rlang::ensym(var)
@@ -143,7 +153,7 @@ alpha_trends <- function(data, var, varlabel){
     ggplot(aes(x = year, y = !!var, alpha = iso3c)) +
     geom_line(aes(colour = iso3c), linewidth = 1.5, linetype = "solid") +
     scale_alpha_manual(values = c(CRI = 1.0, GTM = 0.4, HND = 0.4,
-                                  NIC = 0.4, PAN = 0.4, SLV = 1.0),
+                                  NIC = 0.4, PAN = 1.0, SLV = 0.4),
                        guide = "none") +
     scale_colour_manual(values = cores_dalton_friendly) +
     theme_minimal() +
@@ -154,11 +164,11 @@ alpha_trends <- function(data, var, varlabel){
     xlab("Ano") + ylab(varlabel) +
     labs(colour = "País")}
 
-country_pcp_ts <- alpha_trends(ws_dataset, 
+country_pcp_ts <- alpha_trends(ws_dataset_latam, 
                                "cg_pcp_sexp", "Gasto Social per capita")
-country_prop_ts <- alpha_trends(ws_dataset, 
+country_prop_ts <- alpha_trends(ws_dataset_latam, 
                                 "cg_prop_sexp", "Gasto Social (% Total)")
-country_gdp_ts <- alpha_trends(ws_dataset, 
+country_gdp_ts <- alpha_trends(ws_dataset_latam, 
                                "cg_gdp_sexp", "Gasto Social (% PIB)")
 
 ggsave(plot = country_pcp_ts, "plot/country_pcp_ts.jpeg", 
@@ -176,10 +186,13 @@ var.list <- c("cg_prop_sexp", "cg_gdp_sexp", "cg_pcp_sexp", "gdp_pcp_ppp",
               "kof_trade_df", "dp_ratio_old", "v2pariglef_ord",
               "v2x_polyarchy")
 
-all.stats <- ws_dataset %>% 
+all.stats <- ws_dataset_latam %>% 
   filter(region2 == "América Central") %>% 
   group_by(iso3c) %>% 
   reframe(across(var.list, ~ mean(.x, na.rm = TRUE)))
+
+all.stats %>% arrange(desc(cg_gdp_sexp)) %>% 
+  select(iso3c, cg_gdp_sexp, everything())
 
 all.stats %>% filter(iso3c %in% c("CRI", "PAN")) %>% t()
 
